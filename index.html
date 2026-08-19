@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Octopi — Dotted Wave / Glass Emblem Loop</title>
+  <meta name="description" content="Seamless looping 3D animation: dotted sine-wave particle field, vortex transition, and a rotating translucent glass emblem." />
+  <link rel="stylesheet" href="css/styles.css" />
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="scene"></canvas>
+
+    <div class="loader" id="loader" aria-live="polite">
+      <span class="loader__dot"></span>
+      <span class="loader__dot"></span>
+      <span class="loader__dot"></span>
+    </div>
+
+    <header class="hud hud--top">
+      <span class="hud__mark">OCTOPI</span>
+      <span class="hud__sub">glass emblem · seamless loop</span>
+    </header>
+
+    <footer class="hud hud--bottom">
+      <span class="hud__hint"><kbd>Space</kbd> pause · <kbd>D</kbd> debug · move pointer to parallax</span>
+      <span class="hud__fps" id="fps"></span>
+    </footer>
+  </div>
+
+  <!-- Boot diagnostics: a classic script, so it runs even when the module
+       graph cannot load at all (file:// origin, blocked CDN, offline). -->
+  <script>
+    (function () {
+      var loader = document.getElementById('loader');
+
+      function fail(title, detail) {
+        if (!loader || window.__octopiStarted) return;
+        loader.classList.remove('is-hidden');
+        loader.innerHTML =
+          '<div class="boot-error"><h1>' + title + '</h1><p>' + detail + '</p></div>';
+      }
+
+      if (location.protocol === 'file:') {
+        fail(
+          'Serve this over http://',
+          'Browsers refuse to load ES modules from a <code>file://</code> path. ' +
+          'From this folder run <code>npx serve .</code> (or ' +
+          '<code>python3 -m http.server 8000</code>) and open the localhost URL.'
+        );
+        return;
+      }
+
+      window.addEventListener('error', function (event) {
+        var src = event.target && event.target.src;
+        if (src) fail('Could not load a script', 'Failed to fetch <code>' + src + '</code>.');
+      }, true);
+
+      // If nothing has booted by now, the import map almost certainly failed.
+      setTimeout(function () {
+        fail(
+          'three.js did not load',
+          'The import map fetches r169 from unpkg.com — check the network tab. ' +
+          'Offline? Vendor the build locally and repoint the import map.'
+        );
+      }, 8000);
+    })();
+  </script>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

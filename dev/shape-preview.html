@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Emblem silhouette · fidelity check</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
+    }
+  }
+  </script>
+  <style>
+    body { margin:0; background:#fff; font:11px/1.45 ui-monospace, Menlo, monospace; color:#8a919e; }
+    .grid { display:flex; flex-wrap:wrap; gap:6px; padding:8px; }
+    figure { margin:0; text-align:center; }
+    figcaption { padding-top:3px; }
+    b { color:#2b3140; }
+  </style>
+</head>
+<body>
+  <div class="grid" id="grid"></div>
+  <script type="module">
+    import * as THREE from 'three';
+    import { EMBLEM } from '../js/config.js';
+    import { buildSpine, shapesFromSVG } from '../js/emblem.js';
+
+    const TAU = Math.PI * 2;
+    const q = new URLSearchParams(location.search);
+    const px = Number(q.get('px')) || 300;
+    const grid = document.getElementById('grid');
+
+    const figure = (caption) => {
+      const fig = document.createElement('figure');
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = px;
+      const cap = document.createElement('figcaption');
+      cap.innerHTML = caption;
+      fig.append(cv, cap);
+      grid.appendChild(fig);
+      return cv.getContext('2d');
+    };
+
+    /** Append one closed contour to the current path (no beginPath — the
+        caller opens the path so shape + holes fill as a single even-odd run). */
+    const trace = (ctx, loop) => {
+      loop.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+      ctx.closePath();
+    };
+
+    /* ---------------------------------------------------- artwork mode --
+       ?svg=1 renders assets/logo.svg. Each entry of `v` is
+       [simplify, smooth, curveSegments]; [0,0,n] is the untouched trace.
+       The source outline is drawn in red over the processed fill, and the
+       deviation between them is measured as a share of the emblem radius. */
+    async function drawArtwork() {
+      const text = await (await fetch('../' + EMBLEM.svg.url)).text();
+      const ratio = q.has('r') ? Number(q.get('r')) : EMBLEM.svg.minAreaRatio;
+      const zoom = Number(q.get('zoom')) || 1;
+      const focus = (q.get('focus') || '0,0').split(',').map(Number);
+      const variants = JSON.parse(q.get('v') || '[[0,0,4]]');
+
+      const source = shapesFromSVG(text, ratio);
+      const sourcePts = source.flatMap((s) => s.extractPoints(16).shape);
+
+      const box = new THREE.Box2();
+      for (const p of sourcePts) box.expandByPoint(p);
+      const centre = box.getCenter(new THREE.Vector2());
+      const radius = Math.max(box.max.x - box.min.x, box.max.y - box.min.y) / 2;
+
+      for (const [simplify, smooth, curveSegments] of variants) {
+        Object.assign(EMBLEM.svg, { simplify, smooth, curveSegments });
+        const shapes = shapesFromSVG(text, ratio, simplify > 0 || smooth > 0);
+        const pts = shapes.flatMap((s) => s.extractPoints(16).shape);
+
+        // Nearest-point distance from every source vertex to the processed outline.
+        let max = 0;
+        let sum = 0;
+        for (const a of sourcePts) {
+          let best = Infinity;
+          for (const b of pts) {
+            const d = (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
+            if (d < best) best = d;
+          }
+          best = Math.sqrt(best);
+          max = Math.max(max, best);
+          sum += best;
+        }
+        const pct = (v) => ((v / radius) * 100).toFixed(2);
+
+        const ctx = figure(
+          `sim ${simplify} · sm ${smooth} · cs ${curveSegments} · ${pts.length} pts<br>` +
+          `<b>max ${pct(max)}%</b> · avg ${pct(sum / sourcePts.length)}%`
+        );
+
+        const S = (px / (2.3 * radius)) * zoom;
+        ctx.translate(px / 2, px / 2);
+        ctx.scale(S, -S);
+        ctx.translate(-centre.x - focus[0] * radius, -centre.y - focus[1] * radius);
+        ctx.lineJoin = 'round';
+
+        ctx.fillStyle = '#c9d0da';
+        ctx.beginPath();
+        for (const s of shapes) {
+          const ep = s.extractPoints(16);
+          trace(ctx, ep.shape);
+          ep.holes.forEach((h) => trace(ctx, h));
+        }
+        ctx.fill('evenodd');
+
+        ctx.strokeStyle = 'rgba(214,38,58,0.85)';
+        ctx.lineWidth = radius / (300 * zoom);
+        ctx.beginPath();
+        for (const s of source) {
+          const ep = s.extractPoints(16);
+          trace(ctx, ep.shape);
+          ep.holes.forEach((h) => trace(ctx, h));
+        }
+        ctx.stroke();
+      }
+    }
+
+    /* --------------------------------------------- parametric hook mode --
+       Each entry of `v` is a patch over EMBLEM.hook (plus optional width). */
+    function drawHooks() {
+      const width = Number(q.get('w')) || EMBLEM.ribbon.width;
+      for (const patch of JSON.parse(q.get('v') || '[{}]')) {
+        const curve = buildSpine({ ...EMBLEM.hook, ...patch });
+        const pts = curve.getSpacedPoints(320);
+        const w = patch.width ?? width;
+
+        const ctx = figure(
+          Object.entries(patch).map(([k, v]) => `${k.slice(0, 4)}${v}`).join(' ') || 'base'
+        );
+        const S = px / 2.3;
+        ctx.translate(px / 2, px / 2);
+        ctx.scale(S, -S);
+
+        ctx.lineWidth = 1 / S;
+        ctx.strokeStyle = '#eceef2';
+        ctx.beginPath(); ctx.arc(0, 0, 1, 0, TAU); ctx.stroke();
+
+        for (let i = 0; i < EMBLEM.arms; i++) {
+          ctx.save();
+          ctx.rotate((i / EMBLEM.arms) * TAU);
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.beginPath();
+          trace(ctx, pts);
+          ctx.lineWidth = w;
+          ctx.strokeStyle = '#c9d0da';
+          ctx.stroke();
+          ctx.lineWidth = 0.004;
+          ctx.strokeStyle = 'rgba(20,26,38,0.55)';
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+    }
+
+    if (q.get('svg') === '1') await drawArtwork();
+    else drawHooks();
+    document.title = 'ready';
+  </script>
+</body>
+</html>
